@@ -5,13 +5,38 @@
 class Player 
 {
 private:
+    glm::vec3 m_force;
+    glm::vec3 m_vel;
     glm::vec3 m_pos;
 
 public:
-    Player (glm::vec3 pos = glm::vec3(0.0f)) : m_pos{pos} {}
+    Player (glm::vec3 pos = glm::vec3(0.0f)) : m_force{0,0,0}, m_vel{0,0,0}, m_pos{pos} {}
 
-    // TODO: MAKE REALISTIC
-    void ApplyGravity (float dt_sqr, float grav_const) {m_pos.y -= dt_sqr * grav_const;}
+    void Integrate (float dt)
+    {
+        m_vel += dt * m_force;
+        m_pos += dt * m_vel;
+    }
+
+    void SetForce (glm::vec3 const& force) 
+    {
+        m_force = force;
+    }
+
+    void AddForce (glm::vec3 const& force) 
+    {
+        m_force += force;
+    }
+
+    void SetVel (glm::vec3 const& vel)
+    {
+        m_vel = vel;
+    }
+
+
+    void ResetVelocity () {m_vel = {0,0,0};}
+    void ResetForce () {m_force = {0,0,0};}
+
     glm::vec3 const& GetPos () const {return m_pos;}
     void SetPos (glm::vec3 const& pos) {m_pos = pos;}
 };

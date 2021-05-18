@@ -17,7 +17,6 @@ class Graphics : public OglwrapExample {
         float scale_;
         float off_;
         Voxels voxels;
-        Mesh mesh;
 
         // A shader program
         gl::Program prog_;
@@ -27,8 +26,16 @@ class Graphics : public OglwrapExample {
         glm::vec2 camAng = {0, -M_PI_2};
         glm::vec3 camForward = {1, 0, 0};
 
+        Mesh mesh;
         std::vector<MeshPoint> points_;
         std::vector<unsigned> indices_;
+
+        Mesh screenMesh;
+        std::vector<MeshPoint> crossHairPoints_;
+        std::vector<unsigned> crossHairInds_;
+
+        float grav_const = 4;
+        bool player_grounded_ = false;
 
         float t_click_prev_ = 0;
 
@@ -36,18 +43,26 @@ class Graphics : public OglwrapExample {
 
     public:
         Graphics ()
-            : Ngrid{100}, 
+            : Ngrid{40}, 
             scale_{2 / float(Ngrid)}, off_{1.0f},
-            voxels(Ngrid, Ngrid, Ngrid), player_(glm::vec3(0.5,20,0))
-
+            voxels(Ngrid, Ngrid, Ngrid), player_(glm::vec3(0.5,5,0))
         {
-            for(int z = 1; z < voxels.Nz - 1; ++z)
-                for(int y = 1; y < voxels.Ny - 1; ++y)
-                    for(int x = 1; x < voxels.Nx - 1; ++x)
-                    {
-                        if(cos(x / float(Ngrid) * M_PI * 8) * sin(z / float(Ngrid) * M_PI * 8) > y / float(Ngrid) * 2 - 1)
-                            voxels.data[voxels.GetIdx(x,y,z)] = eWood;
-                    }
+            crossHairPoints_.emplace_back(-0.02 , -0.002, 0, -1, 0, 0, 0, 0, 602);
+            crossHairPoints_.emplace_back(+0.02 , -0.002, 0, -1, 0, 0, 1, 0, 602);
+            crossHairPoints_.emplace_back(+0.02 , +0.002, 0, -1, 0, 0, 1, 1, 602);
+            crossHairPoints_.emplace_back(-0.02 , +0.002, 0, -1, 0, 0, 0, 1, 602);
+            crossHairPoints_.emplace_back(-0.002, -0.02 , 0, -1, 0, 0, 0, 0,  602);
+            crossHairPoints_.emplace_back(-0.002, +0.02 , 0, -1, 0, 0, 1, 0,  602);
+            crossHairPoints_.emplace_back(+0.002, +0.02 , 0, -1, 0, 0, 1, 1,  602);
+            crossHairPoints_.emplace_back(+0.002, -0.02 , 0, -1, 0, 0, 0, 1,  602);
+            crossHairInds_ = {0,1,2,2,3,0, 4,5,6,6,7,4};
+
+            float max_dim = std::max(kScreenWidth, kScreenHeight);
+            glm::vec3 aspect_scale{kScreenWidth / max_dim, kScreenHeight / max_dim, 1};
+            for(auto& p: crossHairPoints_)
+                p.pos /= aspect_scale;
+
+            screenMesh.Set(&crossHairPoints_, &crossHairInds_);
 
             // We need to add a few more lines to the shaders
             gl::ShaderSource vs_source;
@@ -97,9 +112,9 @@ class Graphics : public OglwrapExample {
         // Retrieve bottom left coordinate of sprite from sprite sheet.
         vec2 sprite_coords = vec2(tex_id % sprite_dim, tex_id / sprite_dim + 1);
         sprite_coords = (sprite_coords + vec2(uv.x, -uv.y)) / float(sprite_dim);
-        vec3 tex_col = vec3(texture(tex, sprite_coords));
+        vec4 tex_col = texture(tex, sprite_coords);
 		vec3 ambient = 0.8 * vec3(1.0);
-        fragColor = vec4(tex_col * (ambient + d1 * c1), 1.0);
+        fragColor = tex_col * vec4(ambient + d1 * c1, 1.0);
       })""");
             fs_source.set_source_file("example_shader.frag");
             gl::Shader fs(gl::kFragmentShader, fs_source);
@@ -154,6 +169,10 @@ class Graphics : public OglwrapExample {
             // Set user pointer. This is used in the callbacks, which are static.
             glfwSetWindowUserPointer(window_, this);
 
+            // Enable alpha blending
+            gl::Enable(gl::kBlend);
+            gl::BlendFunc(gl::kSrcAlpha, gl::kOneMinusSrcAlpha);
+
             #pragma omp parallel for 
             for(int z = 1; z < voxels.Nz - 1; ++z)
                 for(int y = 1; y < voxels.Ny - 1; ++y)
@@ -166,34 +185,64 @@ class Graphics : public OglwrapExample {
                         else 
                             voxels.data[voxels.GetIdx(x,y,z)] = eAir;
                     }
+            for(int z = 1; z < voxels.Nz - 1; ++z)
+                for(int y = 1; y < voxels.Ny - 1; ++y)
+                    for(int x = 1; x < voxels.Nx - 1; ++x)
+                    {
+                        if(0.05*(fabs(cos(x / float(Ngrid) * M_PI * 4)) * cos(x / float(Ngrid) * M_PI * 20)) > y / float(Ngrid) * 2 - 1)
+                            voxels.data[voxels.GetIdx(x,y,z)] = eWood;
+                        else if(0.05*(fabs(cos(x / float(Ngrid) * M_PI * 4)) * cos(x / float(Ngrid) * M_PI * 20)) > (y-1) / float(Ngrid) * 2 - 1)
+                            voxels.data[voxels.GetIdx(x,y,z)] = eLava;
+                        else
+                            voxels.data[voxels.GetIdx(x,y,z)] = eAir;
+                    }
         }
 
     protected:
         virtual void Render() override {
             float t = glfwGetTime();
-
+        
             Voxelize(voxels, indices_, points_);
             for(auto& pt: points_)
                 pt.pos = pt.pos * scale_ - off_;
 
             // Player position update.
-            glm::vec3 const& pos = player_.GetPos();
+            glm::vec3 pos = player_.GetPos();
 
             // Collision detect with voxels if in grid. Otherwise, apply gravity/reset to top.
             int x_vox = (pos.x + off_) / scale_;
             int y_vox = (pos.y + off_) / scale_;
             int z_vox = (pos.z + off_) / scale_;
             if(y_vox > Ngrid - 1)
-                player_.ApplyGravity(0.1, 1);
-            else if(y_vox < 4)
+                player_.SetForce({0, -grav_const, 0});
+            else if(y_vox < 1)
                 player_.SetPos(glm::vec3(0.5, 10, 0));  
             else 
             {
-                if(voxels.data[voxels.GetIdx(x_vox, y_vox-4, z_vox)] == eAir)
-                    player_.ApplyGravity(0.01, 1);
-                else if(voxels.data[voxels.GetIdx(x_vox, y_vox, z_vox)] == eWood || voxels.data[voxels.GetIdx(x_vox, y_vox-1, z_vox)] == ePumpkin)
-                    player_.ApplyGravity(-0.1, 1);
+                if(voxels.data[voxels.GetIdx(x_vox, y_vox-1, z_vox)] == eAir)
+                {
+                    player_grounded_ = false;
+                    player_.SetForce({0, -grav_const, 0});
+                }
+                else if(!player_grounded_)
+                {
+                    player_grounded_ = true;
+                    player_.ResetVelocity();
+                    player_.ResetForce();
+                }
+
+                if(voxels.data[voxels.GetIdx(x_vox, y_vox, z_vox)] != eAir)
+                {
+                    do
+                    {
+                        player_.SetPos(player_.GetPos() + glm::vec3(0,1,0) * scale_);
+                        pos = player_.GetPos();
+                        y_vox += 1;
+                    }
+                    while(voxels.data[voxels.GetIdx(x_vox, y_vox, z_vox)] != eAir);
+                }
             }
+            player_.Integrate(0.01);
 
             glm::mat4 camera_mat = glm::lookAt(player_.GetPos(), player_.GetPos() + camForward, glm::vec3{0.0f, 1.0f, 0.0f});
             glm::mat4 model_mat = glm::rotate(glm::mat4(1.0f), 0 * glm::radians(t) * 100, glm::vec3(0,1,0));
@@ -205,6 +254,9 @@ class Graphics : public OglwrapExample {
 
             mesh.Set(&points_, &indices_);
             mesh.Render();
+
+            gl::Uniform<glm::mat4>(prog_, "mvp") = glm::mat4x4(1.0f);
+            screenMesh.Render();
             HandleKeys();
             HandleMouse();
         }
@@ -220,11 +272,7 @@ class Graphics : public OglwrapExample {
         {
             double xpos, ypos;
             glfwGetCursorPos(window_, &xpos, &ypos);
-
-            // Limit the number of clicks possible per second. 
-//            float t = glfwGetTime();
-//            if(t - t_click_prev_ < 0.1)
-//                return;
+            glfwSetCursorPos(window_, kScreenWidth / 2, kScreenHeight / 2);
 
             // Convert xpos, ypos from screen coordinates to [-1,1] coordinates.
             glm::vec2 wpos = {(float)xpos, (float)ypos};
@@ -235,6 +283,11 @@ class Graphics : public OglwrapExample {
             camForward = {cos(camAng.x) * cos(camAng.y), 
                        sin(camAng.y), 
                        sin(camAng.x) * cos(camAng.y)};
+
+            // Limit the number of clicks possible per second. 
+            float t = glfwGetTime();
+            if(t - t_click_prev_ < 0.1)
+                return;
 
             if (glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
             {
@@ -252,13 +305,12 @@ class Graphics : public OglwrapExample {
                 SetSquare(voxels, vox_prev, 1, ePumpkin);
             }
 
-//            t_click_prev_ = t;
-            glfwSetCursorPos(window_, kScreenWidth / 2, kScreenHeight / 2);
+            t_click_prev_ = t;
         }
 
         void HandleKeys()
         {
-            float moveSpeed = 0.01;
+            float moveSpeed = 0.005;
 
             bool gW = glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS;
             bool gA = glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS;
@@ -270,6 +322,11 @@ class Graphics : public OglwrapExample {
                 float ang_off_ = (gW | gS) ? 0 : M_PI_2;
                 player_.SetPos(player_.GetPos() + dir * moveSpeed * 
                         glm::vec3(cos(camAng.x + ang_off_), 0, sin(camAng.x + ang_off_)));
+            }
+
+            if(glfwGetKey(window_, GLFW_KEY_SPACE) == GLFW_PRESS)
+            {
+                player_.SetVel({0, 1, 0});
             }
         }
 

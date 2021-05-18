@@ -4,7 +4,7 @@
 
 enum Block : int
 {
-    eWood=0, ePumpkin, eAir, eCount
+    eWood=0, ePumpkin, eLava, eAir, eCount
 };
 
 struct Voxels 
@@ -92,8 +92,9 @@ void SetSquare (Voxels& grid, glm::ivec3 const& coord, int len=1, Block v = eAir
 // faceIdx indexing is: LEFT, RIGHT, BOTTOM, TOP, BACK, FRONT
 static int g_blockFaceSpriteLookup [] = 
 {
-      16,    16,   16,   16,   16,   16,    
-      17,    17,  113,  113,   17,  464,
+      16 ,   16,   16,   16,   16,   16,    
+      17 ,   17,  113,  113,   17,  464,
+      0  ,  0  ,  0  ,  0  ,  0  ,  0  ,   
       602,  602,  602,  602,  602,  602,   
 };
 
