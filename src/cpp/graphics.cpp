@@ -156,13 +156,15 @@ protected:
                         data[i][j][(min_idx+2)%3] = 0; 
                     }
                 }
+            }
 
-				for(int i = 0; i < height/20; ++i)
-					for(int j = 0; j < width/20; ++j)
-					{
-						data[int(a4.p.x) + i - height/40][int(a4.p.y) + j - width/40][0] = UCHAR_MAX;
-						data[int(a4.p.x) + i - height/40][int(a4.p.y) + j - width/40][1] = UCHAR_MAX;
-						data[int(a4.p.x) + i - height/40][int(a4.p.y) + j - width/40][2] = UCHAR_MAX;
+            #pragma omp parallel for
+            for(int i = 0; i < height/20; ++i)
+                for(int j = 0; j < width/20; ++j)
+                {
+                    data[int(a4.p.x) + i - height/40][int(a4.p.y) + j - width/40][0] = UCHAR_MAX;
+                    data[int(a4.p.x) + i - height/40][int(a4.p.y) + j - width/40][1] = UCHAR_MAX;
+                    data[int(a4.p.x) + i - height/40][int(a4.p.y) + j - width/40][2] = UCHAR_MAX;
 
 //						data[int(a5.p.x) + i - height/40][int(a5.p.y) + j - width/40][0] = UCHAR_MAX;
 //						data[int(a5.p.x) + i - height/40][int(a5.p.y) + j - width/40][1] = UCHAR_MAX;
@@ -171,8 +173,7 @@ protected:
 //						data[int(a6.p.x) + i - height/40][int(a6.p.y) + j - width/40][0] = UCHAR_MAX;
 //						data[int(a6.p.x) + i - height/40][int(a6.p.y) + j - width/40][1] = UCHAR_MAX;
 //						data[int(a6.p.x) + i - height/40][int(a6.p.y) + j - width/40][2] = UCHAR_MAX;
-					}
-            }
+                }
             
             tex_.upload(gl::kRgb, width, height,
                     gl::kRgb, gl::kUnsignedByte, data);
