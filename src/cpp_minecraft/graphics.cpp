@@ -41,6 +41,9 @@ class Graphics : public OglwrapExample {
 
         Player player_;
 
+        bool changed_voxels_ = true;
+        int inc_ = 0;
+
     public:
         Graphics ()
             : Ngrid{40}, 
@@ -172,39 +175,71 @@ class Graphics : public OglwrapExample {
             // Enable alpha blending
             gl::Enable(gl::kBlend);
             gl::BlendFunc(gl::kSrcAlpha, gl::kOneMinusSrcAlpha);
+        
+            auto genus_2 = 
+             [](float x, float y, float z) 
+             {
+                 x = x * 3;
+                 y = y * 3;
+                 z = z * 3;
+                  return 
+                  2 * y * (y*y - 3*x*x) * (1 - z*z)
+                + pow(x*x + y*y,2) 
+                - (9*z*z -1) * (1 - z*z);
+             };
+
+            float R = 0.8;
+            float a = 0.3;
+            auto three_tori = 
+             [R,a](float x, float y, float z) 
+             {
+                 x = x * (R + a);
+                 y = y * (R + a);
+                 z = z * (R + a);
+                 float Fc = pow(x*x + y*y + z*z + R*R - a*a,2);
+                 float F1 = Fc - 4*R*R*(x*x+y*y);
+                 float F2 = Fc - 4*R*R*(x*x+z*z);
+                 float F3 = Fc - 4*R*R*(y*y+z*z);
+                 return F1 * F2 * F3;
+             };
+
+            auto plane = 
+             [](float x, float y, float z) 
+             {
+                 return y - 0.3;
+             };
 
             #pragma omp parallel for 
             for(int z = 1; z < voxels.Nz - 1; ++z)
                 for(int y = 1; y < voxels.Ny - 1; ++y)
                     for(int x = 1; x < voxels.Nx - 1; ++x)
                     {
-                        if(voxels.Nz * (1 + cos(y / 10)) / 4 > z)
+                        float xx = 2 * x / (float)voxels.Nx - 1;
+                        float yy = 2 * y / (float)voxels.Ny - 1;
+                        float zz = 2 * z / (float)voxels.Nz - 1;
+                        float d = plane(xx, yy, zz);
+                        if(d <= -0.1) 
                             voxels.data[voxels.GetIdx(x,y,z)] = eWood;
-                        else if(voxels.Nz * (1 + cos(y / 10)) / 2 > z)
+                        else if(d <= 0) 
                             voxels.data[voxels.GetIdx(x,y,z)] = ePumpkin;
                         else 
                             voxels.data[voxels.GetIdx(x,y,z)] = eAir;
                     }
-            for(int z = 1; z < voxels.Nz - 1; ++z)
-                for(int y = 1; y < voxels.Ny - 1; ++y)
-                    for(int x = 1; x < voxels.Nx - 1; ++x)
-                    {
-                        if(0.05*(fabs(cos(x / float(Ngrid) * M_PI * 4)) * cos(x / float(Ngrid) * M_PI * 20)) > y / float(Ngrid) * 2 - 1)
-                            voxels.data[voxels.GetIdx(x,y,z)] = eWood;
-                        else if(0.05*(fabs(cos(x / float(Ngrid) * M_PI * 4)) * cos(x / float(Ngrid) * M_PI * 20)) > (y-1) / float(Ngrid) * 2 - 1)
-                            voxels.data[voxels.GetIdx(x,y,z)] = eLava;
-                        else
-                            voxels.data[voxels.GetIdx(x,y,z)] = eAir;
-                    }
+            changed_voxels_ = true;
         }
 
     protected:
         virtual void Render() override {
             float t = glfwGetTime();
-        
-            Voxelize(voxels, indices_, points_);
-            for(auto& pt: points_)
-                pt.pos = pt.pos * scale_ - off_;
+
+            // Lazy re-voxelization.
+            if(changed_voxels_)
+            {
+                Voxelize(voxels, indices_, points_);
+                for(auto& pt: points_)
+                    pt.pos = pt.pos * scale_ - off_;
+                changed_voxels_ = false;
+            }
 
             // Player position update.
             glm::vec3 pos = player_.GetPos();
@@ -219,7 +254,7 @@ class Graphics : public OglwrapExample {
                 player_.SetPos(glm::vec3(0.5, 10, 0));  
             else 
             {
-                if(voxels.data[voxels.GetIdx(x_vox, y_vox-1, z_vox)] == eAir)
+                if(voxels.data[voxels.GetIdx(x_vox, y_vox, z_vox)] == eAir)
                 {
                     player_grounded_ = false;
                     player_.SetForce({0, -grav_const, 0});
@@ -259,6 +294,7 @@ class Graphics : public OglwrapExample {
             screenMesh.Render();
             HandleKeys();
             HandleMouse();
+            inc_ += 1;
         }
 
         // Only called when mouse events (release/press) happen. This is good when you 
@@ -295,6 +331,7 @@ class Graphics : public OglwrapExample {
                 glm::ivec3 vox_prev;
                 auto hit_pos = voxels.CastRay(pos_vox, camForward, vox_prev);
                 SetSquare(voxels, hit_pos, 4);
+                changed_voxels_ = true;
             }
 
             if (glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS)
@@ -303,6 +340,7 @@ class Graphics : public OglwrapExample {
                 glm::ivec3 vox_prev;
                 auto hit_pos = voxels.CastRay(pos_vox, camForward, vox_prev);
                 SetSquare(voxels, vox_prev, 1, ePumpkin);
+                changed_voxels_ = true;
             }
 
             t_click_prev_ = t;

@@ -4,7 +4,7 @@
 
 enum Block : int
 {
-    eWood=0, ePumpkin, eLava, eAir, eCount
+    eWood=0, ePumpkin, eLava, eWater, eAir, eCount
 };
 
 struct Voxels 
@@ -95,6 +95,7 @@ static int g_blockFaceSpriteLookup [] =
       16 ,   16,   16,   16,   16,   16,    
       17 ,   17,  113,  113,   17,  464,
       0  ,  0  ,  0  ,  0  ,  0  ,  0  ,   
+      2  ,  2  ,  2  ,  2  ,  2  ,  2  ,   
       602,  602,  602,  602,  602,  602,   
 };
 
