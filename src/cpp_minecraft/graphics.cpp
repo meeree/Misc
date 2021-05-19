@@ -10,6 +10,7 @@
 
 #include "voxels.h"
 #include "player.h"
+#include "perlin.h"
 
 class Graphics : public OglwrapExample {
     private:
@@ -40,13 +41,17 @@ class Graphics : public OglwrapExample {
         float t_click_prev_ = 0;
 
         Player player_;
+        bool need_voxels_update_ = true;
 
     public:
         Graphics ()
-            : Ngrid{40}, 
+            : Ngrid{100}, 
             scale_{2 / float(Ngrid)}, off_{1.0f},
             voxels(Ngrid, Ngrid, Ngrid), player_(glm::vec3(0.5,5,0))
         {
+            std::ofstream perlin_out("../../PERLIN.txt");
+            auto grid = Perlin3D().Test(10, 20);
+
             crossHairPoints_.emplace_back(-0.02 , -0.002, 0, -1, 0, 0, 0, 0, 602);
             crossHairPoints_.emplace_back(+0.02 , -0.002, 0, -1, 0, 0, 1, 0, 602);
             crossHairPoints_.emplace_back(+0.02 , +0.002, 0, -1, 0, 0, 1, 1, 602);
@@ -140,7 +145,7 @@ class Graphics : public OglwrapExample {
                 gl::Bind(tex_);
                 unsigned width, height;
                 std::vector<unsigned char> data;
-                std::string path = "../minecraft_sprites_real.png";
+                std::string path = "../../minecraft_sprites_real.png";
                 unsigned error = lodepng::decode(data, width, height, path, LCT_RGBA, 8);
                 if (error) {
                     std::cerr << "Image decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
@@ -176,35 +181,42 @@ class Graphics : public OglwrapExample {
             #pragma omp parallel for 
             for(int z = 1; z < voxels.Nz - 1; ++z)
                 for(int y = 1; y < voxels.Ny - 1; ++y)
-                    for(int x = 1; x < voxels.Nx - 1; ++x)
+                    for (int x = 1; x < voxels.Nx - 1; ++x)
                     {
-                        if(voxels.Nz * (1 + cos(y / 10)) / 4 > z)
-                            voxels.data[voxels.GetIdx(x,y,z)] = eWood;
-                        else if(voxels.Nz * (1 + cos(y / 10)) / 2 > z)
-                            voxels.data[voxels.GetIdx(x,y,z)] = ePumpkin;
-                        else 
-                            voxels.data[voxels.GetIdx(x,y,z)] = eAir;
-                    }
-            for(int z = 1; z < voxels.Nz - 1; ++z)
-                for(int y = 1; y < voxels.Ny - 1; ++y)
-                    for(int x = 1; x < voxels.Nx - 1; ++x)
-                    {
-                        if(0.05*(fabs(cos(x / float(Ngrid) * M_PI * 4)) * cos(x / float(Ngrid) * M_PI * 20)) > y / float(Ngrid) * 2 - 1)
-                            voxels.data[voxels.GetIdx(x,y,z)] = eWood;
-                        else if(0.05*(fabs(cos(x / float(Ngrid) * M_PI * 4)) * cos(x / float(Ngrid) * M_PI * 20)) > (y-1) / float(Ngrid) * 2 - 1)
-                            voxels.data[voxels.GetIdx(x,y,z)] = eLava;
+                        if (grid[x][y][z] <= 0.1)
+                            voxels.data[voxels.GetIdx(x, y, z)] = eWood;
                         else
-                            voxels.data[voxels.GetIdx(x,y,z)] = eAir;
+                            voxels.data[voxels.GetIdx(x, y, z)] = eAir;
                     }
         }
 
     protected:
         virtual void Render() override {
             float t = glfwGetTime();
+
+
+//            #pragma omp parallel for 
+//            for(int z = 1; z < voxels.Nz - 1; ++z)
+//                for(int y = 1; y < voxels.Ny - 1; ++y)
+//                    for(int x = 1; x < voxels.Nx - 1; ++x)
+//                    {
+//                        if(0.05*(fabs(cos(t + x / float(Ngrid) * M_PI * 4)) * cos(t + x / float(Ngrid) * M_PI * 20)) > y / float(Ngrid) * 2 - 1)
+//                            voxels.data[voxels.GetIdx(x,y,z)] = eWood;
+//                        else if(0.05*(fabs(cos(t + x / float(Ngrid) * M_PI * 4)) * cos(t + x / float(Ngrid) * M_PI * 20)) > (y-1) / float(Ngrid) * 2 - 1)
+//                            voxels.data[voxels.GetIdx(x,y,z)] = eLava;
+//                        else
+//                            voxels.data[voxels.GetIdx(x,y,z)] = eAir;
+//                    }
+//            need_voxels_update_ = true;
         
-            Voxelize(voxels, indices_, points_);
-            for(auto& pt: points_)
-                pt.pos = pt.pos * scale_ - off_;
+            // Lazy voxelization.
+            if (need_voxels_update_)
+            {
+                Voxelize(voxels, indices_, points_);
+                for(auto& pt: points_)
+                    pt.pos = pt.pos * scale_ - off_;
+                need_voxels_update_ = false;
+            }
 
             // Player position update.
             glm::vec3 pos = player_.GetPos();
@@ -295,6 +307,7 @@ class Graphics : public OglwrapExample {
                 glm::ivec3 vox_prev;
                 auto hit_pos = voxels.CastRay(pos_vox, camForward, vox_prev);
                 SetSquare(voxels, hit_pos, 4);
+                need_voxels_update_ = true;
             }
 
             if (glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS)
@@ -303,6 +316,7 @@ class Graphics : public OglwrapExample {
                 glm::ivec3 vox_prev;
                 auto hit_pos = voxels.CastRay(pos_vox, camForward, vox_prev);
                 SetSquare(voxels, vox_prev, 1, ePumpkin);
+                need_voxels_update_ = true;
             }
 
             t_click_prev_ = t;
