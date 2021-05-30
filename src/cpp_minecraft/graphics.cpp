@@ -11,13 +11,64 @@
 #include "voxels.h"
 #include "player.h"
 #include "perlin.h"
+#include "pet.h"
+
+void CreatePetMesh(int v, 
+         std::vector<MeshPoint>& points, std::vector<unsigned>& inds)
+{
+    int spid = g_blockFaceSpriteLookup[v*6+0];
+    points.emplace_back(-0.5f, -0.5f, -0.5f, -1, 0, 0, 0, 0, spid);
+    points.emplace_back(-0.5f, -0.5f, +0.5f, -1, 0, 0, 1, 0, spid);
+    points.emplace_back(-0.5f, +0.5f, +0.5f, -1, 0, 0, 1, 1, spid);
+    points.emplace_back(-0.5f, +0.5f, -0.5f, -1, 0, 0, 0, 1, spid);
+
+    spid = g_blockFaceSpriteLookup[v*6+1];
+    points.emplace_back(+0.5f, -0.5f, -0.5f, 1, 0, 0, 0, 0, spid);
+    points.emplace_back(+0.5f, -0.5f, +0.5f, 1, 0, 0, 1, 0, spid);
+    points.emplace_back(+0.5f, +0.5f, +0.5f, 1, 0, 0, 1, 1, spid);
+    points.emplace_back(+0.5f, +0.5f, -0.5f, 1, 0, 0, 0, 1, spid);
+
+    spid = g_blockFaceSpriteLookup[v*6+2];
+    points.emplace_back(-0.5f, -0.5f, -0.5f, 0, -1, 0, 0, 0, spid); 
+    points.emplace_back(-0.5f, -0.5f, +0.5f, 0, -1, 0, 0, 1, spid); 
+    points.emplace_back(+0.5f, -0.5f, +0.5f, 0, -1, 0, 1, 1, spid); 
+    points.emplace_back(+0.5f, -0.5f, -0.5f, 0, -1, 0, 1, 0, spid); 
+
+    spid = g_blockFaceSpriteLookup[v*6+3];
+    points.emplace_back(-0.5f, +0.5f, -0.5f, 0, 1, 0, 0, 0, spid);
+    points.emplace_back(-0.5f, +0.5f, +0.5f, 0, 1, 0, 0, 1, spid);
+    points.emplace_back(+0.5f, +0.5f, +0.5f, 0, 1, 0, 1, 1, spid);
+    points.emplace_back(+0.5f, +0.5f, -0.5f, 0, 1, 0, 1, 0, spid);
+
+    spid = g_blockFaceSpriteLookup[v*6+4];
+    points.emplace_back(-0.5f, -0.5f, -0.5f, 0, 0, -1, 0, 0, spid); 
+    points.emplace_back(-0.5f, +0.5f, -0.5f, 0, 0, -1, 0, 1, spid); 
+    points.emplace_back(+0.5f, +0.5f, -0.5f, 0, 0, -1, 1, 1, spid); 
+    points.emplace_back(+0.5f, -0.5f, -0.5f, 0, 0, -1, 1, 0, spid); 
+
+    spid = g_blockFaceSpriteLookup[v*6+5];
+    points.emplace_back(-0.5f, -0.5f, +0.5f, 0, 0, 1, 0, 0, spid); 
+    points.emplace_back(-0.5f, +0.5f, +0.5f, 0, 0, 1, 0, 1, spid); 
+    points.emplace_back(+0.5f, +0.5f, +0.5f, 0, 0, 1, 1, 1, spid); 
+    points.emplace_back(+0.5f, -0.5f, +0.5f, 0, 0, 1, 1, 0, spid); 
+
+    // Indices are the same for each square.
+    int inds_single[6]{0, 1, 2, 2, 3, 0};
+    for(size_t i = 0; i < points.size() / 4; ++i)
+    {
+        inds.insert(inds.end(), inds_single, inds_single + 6);
+        for(int& i: inds_single)
+            i += 4;
+    }
+}
 
 class Graphics : public OglwrapExample {
     private:
         int Ngrid;
         float scale_;
         float off_;
-        Voxels voxels;
+        Voxels voxels_read;
+        Voxels voxels_write;
 
         // A shader program
         gl::Program prog_;
@@ -35,6 +86,11 @@ class Graphics : public OglwrapExample {
         std::vector<MeshPoint> crossHairPoints_;
         std::vector<unsigned> crossHairInds_;
 
+        Mesh petMesh;
+        std::vector<MeshPoint> petMeshPoints_;
+        std::vector<unsigned> petMeshInds_;
+        Pet pet;
+
         float grav_const = 4;
         bool player_grounded_ = false;
 
@@ -43,14 +99,19 @@ class Graphics : public OglwrapExample {
         Player player_;
         bool need_voxels_update_ = true;
 
+        float near_ = 0.0001;
+
     public:
         Graphics ()
-            : Ngrid{100}, 
+            : Ngrid{64}, 
             scale_{2 / float(Ngrid)}, off_{1.0f},
-            voxels(Ngrid, Ngrid, Ngrid), player_(glm::vec3(0.5,5,0))
+            voxels_read(Ngrid, Ngrid, Ngrid), voxels_write(Ngrid, Ngrid, Ngrid),
+            player_(glm::vec3(0.5,5,0)),
+            pet(glm::vec3(0.5, 5, 0), 0.01)
         {
             std::ofstream perlin_out("../../PERLIN.txt");
-            auto grid = Perlin3D().Test(10, 20);
+            srand(100*time(NULL));
+            auto grid = Perlin3D().Test(4, 16);
 
             crossHairPoints_.emplace_back(-0.02 , -0.002, 0, -1, 0, 0, 0, 0, 602);
             crossHairPoints_.emplace_back(+0.02 , -0.002, 0, -1, 0, 0, 1, 0, 602);
@@ -68,6 +129,9 @@ class Graphics : public OglwrapExample {
                 p.pos /= aspect_scale;
 
             screenMesh.Set(&crossHairPoints_, &crossHairInds_);
+
+            CreatePetMesh(0.5, petMeshPoints_, petMeshInds_);
+            petMesh.Set(&petMeshPoints_, &petMeshInds_);
 
             // We need to add a few more lines to the shaders
             gl::ShaderSource vs_source;
@@ -145,7 +209,7 @@ class Graphics : public OglwrapExample {
                 gl::Bind(tex_);
                 unsigned width, height;
                 std::vector<unsigned char> data;
-                std::string path = "../../minecraft_sprites_real.png";
+                std::string path = "../minecraft_sprites_real.png";
                 unsigned error = lodepng::decode(data, width, height, path, LCT_RGBA, 8);
                 if (error) {
                     std::cerr << "Image decoder error " << error << ": " << lodepng_error_text(error) << std::endl;
@@ -179,40 +243,97 @@ class Graphics : public OglwrapExample {
             gl::BlendFunc(gl::kSrcAlpha, gl::kOneMinusSrcAlpha);
 
             #pragma omp parallel for 
-            for(int z = 1; z < voxels.Nz - 1; ++z)
-                for(int y = 1; y < voxels.Ny - 1; ++y)
-                    for (int x = 1; x < voxels.Nx - 1; ++x)
+            for(int z = 1; z < voxels_read.Nz - 1; ++z)
+                for(int y = 1; y < voxels_read.Ny - 5; ++y)
+                    for (int x = 1; x < voxels_read.Nx - 1; ++x)
                     {
-                        if (grid[x][y][z] <= 0.1)
-                            voxels.data[voxels.GetIdx(x, y, z)] = eWood;
-                        else
-                            voxels.data[voxels.GetIdx(x, y, z)] = eAir;
+                        if(y < voxels_read.Ny * 0.7)
+                        {
+                            if (grid[x][y][z] <= 0.15)
+                                voxels_read.data[voxels_read.GetIdx(x, y, z)] = eStone;
+                            else
+                                voxels_read.data[voxels_read.GetIdx(x, y, z)] = eAir;
+                        }
+                        else 
+                        {
+                            voxels_read.data[voxels_read.GetIdx(x, y, z)] = eAir;
+                        }
                     }
         }
 
     protected:
         virtual void Render() override {
             float t = glfwGetTime();
+            #pragma omp parallel for 
+            for(int i = 0; i < voxels_read.data.size(); ++i)
+                voxels_write.data[i] = voxels_read.data[i];
 
 
 //            #pragma omp parallel for 
-//            for(int z = 1; z < voxels.Nz - 1; ++z)
-//                for(int y = 1; y < voxels.Ny - 1; ++y)
-//                    for(int x = 1; x < voxels.Nx - 1; ++x)
+//            for(int z = 1; z < voxels_read.Nz - 1; ++z)
+//                for(int y = 1; y < voxels_read.Ny - 1; ++y)
+//                    for(int x = 1; x < voxels_read.Nx - 1; ++x)
 //                    {
 //                        if(0.05*(fabs(cos(t + x / float(Ngrid) * M_PI * 4)) * cos(t + x / float(Ngrid) * M_PI * 20)) > y / float(Ngrid) * 2 - 1)
-//                            voxels.data[voxels.GetIdx(x,y,z)] = eWood;
+//                            voxels_read.data[voxels_read.GetIdx(x,y,z)] = eWood;
 //                        else if(0.05*(fabs(cos(t + x / float(Ngrid) * M_PI * 4)) * cos(t + x / float(Ngrid) * M_PI * 20)) > (y-1) / float(Ngrid) * 2 - 1)
-//                            voxels.data[voxels.GetIdx(x,y,z)] = eLava;
+//                            voxels_read.data[voxels_read.GetIdx(x,y,z)] = eLava;
 //                        else
-//                            voxels.data[voxels.GetIdx(x,y,z)] = eAir;
+//                            voxels_read.data[voxels_read.GetIdx(x,y,z)] = eAir;
 //                    }
 //            need_voxels_update_ = true;
+
+
+            //TODO : MOVE
+            // Update water and other dynamics things.
+            if(fmod(t, 0.3) < 0.01)
+            {
+                #pragma omp parallel for 
+                for(int z = 1; z < voxels_read.Nz - 1; ++z)
+                    for(int y = 1; y < voxels_read.Ny; ++y)
+                        for (int x = 1; x < voxels_read.Nx - 1; ++x)
+                        {
+                            int idx = voxels_read.GetIdx(x,y,z);
+                            auto v = voxels_read.data[idx];
+                            if(v != eWater && v != eLava)
+                                continue;
+
+                            if(voxels_read.data[idx - voxels_read.Nx] == eAir)
+                            {
+                                voxels_write.data[idx - voxels_read.Nx] = v;
+                                need_voxels_update_ = true;
+                            }
+
+                            if(voxels_read.data[idx - voxels_read.Nx * voxels_read.Ny] == eAir && voxels_read.data[idx - voxels_read.Nx * voxels_read.Ny - voxels_read.Nx] != eAir)
+                            {
+                                voxels_write.data[idx - voxels_read.Nx * voxels_read.Ny] = v;
+                                need_voxels_update_ = true;
+                            }
+
+                            if(voxels_read.data[idx + voxels_read.Nx * voxels_read.Ny] == eAir && voxels_read.data[idx + voxels_read.Nx * voxels_read.Ny - voxels_read.Nx] != eAir)
+                            {
+                                voxels_write.data[idx + voxels_read.Nx * voxels_read.Ny] = v;
+                                need_voxels_update_ = true;
+                            }
+
+                            if(voxels_read.data[idx - 1] == eAir && voxels_read.data[idx - 1 - voxels_read.Nx] != eAir)
+                            {
+                                voxels_write.data[idx - 1] = v;
+                                need_voxels_update_ = true;
+                            }
+
+                            if(voxels_read.data[idx + 1] == eAir && voxels_read.data[idx + 1 - voxels_read.Nx] != eAir)
+                            {
+                                voxels_write.data[idx + 1] = v;
+                                need_voxels_update_ = true;
+                            }
+                        }
+            }
         
             // Lazy voxelization.
             if (need_voxels_update_)
             {
-                Voxelize(voxels, indices_, points_);
+                Voxelize(voxels_read, indices_, points_);
                 for(auto& pt: points_)
                     pt.pos = pt.pos * scale_ - off_;
                 need_voxels_update_ = false;
@@ -221,7 +342,7 @@ class Graphics : public OglwrapExample {
             // Player position update.
             glm::vec3 pos = player_.GetPos();
 
-            // Collision detect with voxels if in grid. Otherwise, apply gravity/reset to top.
+            // Collision detect with voxels_read if in grid. Otherwise, apply gravity/reset to top.
             int x_vox = (pos.x + off_) / scale_;
             int y_vox = (pos.y + off_) / scale_;
             int z_vox = (pos.z + off_) / scale_;
@@ -231,7 +352,7 @@ class Graphics : public OglwrapExample {
                 player_.SetPos(glm::vec3(0.5, 10, 0));  
             else 
             {
-                if(voxels.data[voxels.GetIdx(x_vox, y_vox-1, z_vox)] == eAir)
+                if(voxels_read.data[voxels_read.GetIdx(x_vox, y_vox-1, z_vox)] == eAir)
                 {
                     player_grounded_ = false;
                     player_.SetForce({0, -grav_const, 0});
@@ -243,7 +364,7 @@ class Graphics : public OglwrapExample {
                     player_.ResetForce();
                 }
 
-                if(voxels.data[voxels.GetIdx(x_vox, y_vox, z_vox)] != eAir)
+                if(voxels_read.data[voxels_read.GetIdx(x_vox, y_vox, z_vox)] != eAir)
                 {
                     do
                     {
@@ -251,26 +372,42 @@ class Graphics : public OglwrapExample {
                         pos = player_.GetPos();
                         y_vox += 1;
                     }
-                    while(voxels.data[voxels.GetIdx(x_vox, y_vox, z_vox)] != eAir);
+                    while(voxels_read.data[voxels_read.GetIdx(x_vox, y_vox, z_vox)] != eAir);
                 }
             }
             player_.Integrate(0.01);
 
             glm::mat4 camera_mat = glm::lookAt(player_.GetPos(), player_.GetPos() + camForward, glm::vec3{0.0f, 1.0f, 0.0f});
             glm::mat4 model_mat = glm::rotate(glm::mat4(1.0f), 0 * glm::radians(t) * 100, glm::vec3(0,1,0));
-            glm::mat4 proj_mat = glm::perspectiveFov<float>(M_PI/3.0, kScreenWidth, kScreenHeight, 0.001, 100);
+            glm::mat4 proj_mat = glm::perspectiveFov<float>(M_PI/3.0, kScreenWidth, kScreenHeight, near_, 100);
             gl::Uniform<glm::mat4>(prog_, "mvp") = proj_mat * camera_mat * model_mat;
 
             glm::vec3 lightPos1 = player_.GetPos();
             gl::Uniform<glm::vec3>(prog_, "lightPos1") = lightPos1;
-
             mesh.Set(&points_, &indices_);
             mesh.Render();
+
+            // Render pet.
+            glm::vec3 pet_diff = player_.GetPos() - pet.pos;
+            float nm = glm::length(pet_diff);
+            if(nm > 0.05)
+            {
+                pet.vel = pet_diff / nm;
+                pet.Integrate(0.01);
+            }
+
+            model_mat = glm::translate(glm::mat4x4(1.0f), pet.pos);
+            model_mat = glm::scale(model_mat, glm::vec3(pet.scale));
+            gl::Uniform<glm::mat4>(prog_, "mvp") = proj_mat * camera_mat * model_mat;
+            petMesh.Render();
 
             gl::Uniform<glm::mat4>(prog_, "mvp") = glm::mat4x4(1.0f);
             screenMesh.Render();
             HandleKeys();
             HandleMouse();
+
+            // Update voxels.
+            std::swap(voxels_read.data, voxels_write.data);
         }
 
         // Only called when mouse events (release/press) happen. This is good when you 
@@ -305,8 +442,9 @@ class Graphics : public OglwrapExample {
             {
                 glm::ivec3 pos_vox = (player_.GetPos() + off_) / scale_;
                 glm::ivec3 vox_prev;
-                auto hit_pos = voxels.CastRay(pos_vox, camForward, vox_prev);
-                SetSquare(voxels, hit_pos, 4);
+                std::vector<glm::ivec3> voxs;
+                auto hit_pos = voxels_read.CastRay(pos_vox, camForward, vox_prev, voxs);
+                SetSquare(voxels_write, hit_pos, 4);
                 need_voxels_update_ = true;
             }
 
@@ -314,8 +452,10 @@ class Graphics : public OglwrapExample {
             {
                 glm::ivec3 pos_vox = (player_.GetPos() + off_) / scale_;
                 glm::ivec3 vox_prev;
-                auto hit_pos = voxels.CastRay(pos_vox, camForward, vox_prev);
-                SetSquare(voxels, vox_prev, 1, ePumpkin);
+                std::vector<glm::ivec3> voxs;
+                auto hit_pos = voxels_read.CastRay(pos_vox, camForward, vox_prev, voxs);
+                for(auto& v: voxs)
+                    SetSquare(voxels_write, v, 1, ePumpkin);
                 need_voxels_update_ = true;
             }
 
@@ -342,6 +482,11 @@ class Graphics : public OglwrapExample {
             {
                 player_.SetVel({0, 1, 0});
             }
+
+            if(glfwGetKey(window_, GLFW_KEY_8) == GLFW_PRESS)
+                near_ += 0.0001;
+            if(glfwGetKey(window_, GLFW_KEY_2) == GLFW_PRESS)
+                near_ -= 0.0001;
         }
 
 };

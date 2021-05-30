@@ -9,8 +9,12 @@ private:
     inline static glm::vec3 RandomGradient(glm::ivec3 const& i)
     {
         // Random float. No precomputed gradients mean this works for any number of grid coordinates
-        float r1 = 2920.f * sin(i.x * 21942.f + i.y * 171324.f + 8912.f) * cos(i.x * 23157.f * i.y * 217832.f + 9758.f);
-        float r2 = 2920.f * sin(i.y * 21942.f + i.z * 171324.f + 8912.f) * cos(i.y * 23157.f * i.z * 217832.f + 9758.f);
+        static float seed1 = rand() % 1000;
+        static float seed2 = rand() % 1000;
+        static float seed3 = rand() % 1000;
+        static float seed4 = rand() % 1000;
+        float r1 = 2920.f * sin(seed1 * (i.x * 21942.f + i.y * 171324.f + 8912.f)) * cos(seed2 * (i.x * 23157.f * i.y * 217832.f + 9758.f));
+        float r2 = 3371.f * sin(seed3 * (i.y * 289821.f + i.z * 92918.f + 9221.f)) * cos(seed4 * (i.y * 19219.f * i.z * 129102.f + 2819.f));
         return {cos(r2) * cos(r1), cos(r2) * sin(r1), sin(r2)};
     }
 
